@@ -1,1 +1,2 @@
 results_dir: "{{ playbook_dir }}/../results"
+threshold_dir: "{{ playbook_dir }}/../results-threshold"

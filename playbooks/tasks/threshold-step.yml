@@ -1,0 +1,23 @@
+# One load step of the threshold test. Included once per rate.
+- name: "Mark start of the {{ step_rate }} step"
+  ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ threshold_dir }}/.t0) )),{{ step_rate }} per flow" >> {{ threshold_dir }}/events.csv
+  delegate_to: localhost
+  run_once: true
+
+- name: "Offer {{ step_rate }} per flow on 60 flows for {{ step_seconds }} seconds"
+  ansible.builtin.command: /home/ubuntu/flows.sh {{ server_id }} cross3 {{ step_seconds }} {{ step_rate }}
+  register: step_result
+  ignore_errors: true
+
+- name: "Mark end of the {{ step_rate }} step"
+  ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ threshold_dir }}/.t0) )),Idle" >> {{ threshold_dir }}/events.csv
+  delegate_to: localhost
+  run_once: true
+
+- name: "Result of the {{ step_rate }} step"
+  ansible.builtin.debug:
+    msg: "{{ step_rate }} per flow: {{ step_result.stdout | default('no result') }}"
+
+- name: Rest between steps
+  ansible.builtin.pause:
+    seconds: 8

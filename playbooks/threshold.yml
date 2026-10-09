@@ -1,0 +1,96 @@
+# Threshold test: raises the offered load step by step until the fabric saturates.
+# Records port counters, drop counters and CPU time on every switch and server.
+# Results land in results-threshold/ (ports.csv, cpu.csv, events.csv).
+
+- name: Prepare the servers
+  hosts: servers
+  gather_facts: false
+  tasks:
+    - name: Copy the flow script
+      ansible.builtin.copy:
+        src: ../scripts/flows.sh
+        dest: /home/ubuntu/flows.sh
+        mode: "0755"
+
+    - name: Start iperf3 listeners on ports 5201-5220
+      ansible.builtin.shell: |
+        for p in $(seq 5201 5220); do
+          ss -ltn | grep -q ":$p " || iperf3 -s -D -p $p
+        done
+      args:
+        executable: /bin/bash
+
+- name: Start recording on every switch and server
+  hosts: switches:servers
+  gather_facts: false
+  vars:
+    port_pattern: "{{ 'eth[1-5]' if 'servers' in group_names else 'swp*' }}"
+  tasks:
+    - name: Copy the sampler script
+      ansible.builtin.copy:
+        src: ../scripts/sampler2.sh
+        dest: /tmp/sampler2.sh
+        mode: "0755"
+
+    - name: Reset the results folder
+      ansible.builtin.shell: |
+        rm -rf {{ threshold_dir }}/raw
+        mkdir -p {{ threshold_dir }}/raw
+        date +%s%3N > {{ threshold_dir }}/.t0
+        echo "elapsed_ms,event" > {{ threshold_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: Start the sampler in the background
+      ansible.builtin.command: >
+        bash /tmp/sampler2.sh {{ inventory_hostname }} 900
+        /tmp/thr-{{ inventory_hostname }} '{{ port_pattern }}'
+      async: 1200
+      poll: 0
+
+- name: Raise the load step by step
+  hosts: servers
+  gather_facts: false
+  vars:
+    rates: [4M, 20M, 50M, 100M, 200M, 330M]
+    step_seconds: 20
+  tasks:
+    - name: Idle baseline (10 seconds)
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Run each load step
+      ansible.builtin.include_tasks: tasks/threshold-step.yml
+      loop: "{{ rates }}"
+      loop_control:
+        loop_var: step_rate
+
+- name: Collect the recordings
+  hosts: switches:servers
+  gather_facts: false
+  tasks:
+    - name: Stop the sampler
+      ansible.builtin.shell: pkill -f '[s]ampler2.sh' || true
+
+    - name: Fetch the recordings
+      ansible.builtin.fetch:
+        src: "/tmp/thr-{{ inventory_hostname }}-{{ item }}.csv"
+        dest: "{{ threshold_dir }}/raw/"
+        flat: true
+      loop: [ports, cpu]
+
+    - name: Merge into results-threshold/
+      ansible.builtin.shell: |
+        cd {{ threshold_dir }}
+        ( echo "elapsed_ms,node,port,rx_bytes,tx_bytes,rx_dropped,tx_dropped"; cat raw/*-ports.csv ) > ports.csv
+        ( echo "elapsed_ms,node,cpu_total,cpu_idle,cpu_softirq,cpu_steal"; cat raw/*-cpu.csv ) > cpu.csv
+        rm -f .t0
+        echo "$(( $(wc -l < ports.csv) - 1 )) port samples and $(( $(wc -l < cpu.csv) - 1 )) CPU samples from $(ls raw/*-cpu.csv | wc -l) nodes"
+      delegate_to: localhost
+      run_once: true
+      register: merged
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: "{{ merged.stdout }}"
+      run_once: true
