@@ -1,0 +1,2 @@
+# Spine ports swp1-swp5 connect to Leaf1-Leaf5
+fabric_ports: [swp1, swp2, swp3, swp4, swp5]

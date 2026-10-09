@@ -1,0 +1,15 @@
+- name: Verify BGP on every switch
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Wait for all BGP sessions to establish
+      ansible.builtin.command: nv show vrf default router bgp neighbor
+      register: bgp
+      changed_when: false
+      until: (bgp.stdout | lower | regex_findall('established') | length) >= (fabric_ports | length)
+      retries: 12
+      delay: 5
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ bgp.stdout | lower | regex_findall('established') | length }} of {{ fabric_ports | length }} BGP sessions established"

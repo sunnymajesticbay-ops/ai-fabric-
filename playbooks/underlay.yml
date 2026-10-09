@@ -1,0 +1,19 @@
+- name: Configure the fabric underlay (hostname, loopback, BGP unnumbered)
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Build the command file for this switch (kept in configs/ for Git)
+      ansible.builtin.template:
+        src: ../templates/underlay.j2
+        dest: "{{ playbook_dir }}/../configs/{{ inventory_hostname }}.sh"
+        mode: "0644"
+      delegate_to: localhost
+
+    - name: Copy the command file to the switch
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../configs/{{ inventory_hostname }}.sh"
+        dest: /home/cumulus/underlay.sh
+        mode: "0644"
+
+    - name: Apply the configuration
+      ansible.builtin.command: bash /home/cumulus/underlay.sh
