@@ -1,0 +1,190 @@
+# Runs a timed traffic scenario and records per-port counters on every switch.
+# Results land in results/counters.csv and results/events.csv.
+
+- name: Prepare the servers
+  hosts: servers
+  gather_facts: false
+  tasks:
+    - name: Install iperf3
+      ansible.builtin.shell: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y iperf3
+      args:
+        creates: /usr/bin/iperf3
+      become: true
+      register: install
+      until: install is succeeded
+      retries: 5
+      delay: 10
+
+    - name: Copy the flow script
+      ansible.builtin.copy:
+        src: ../scripts/flows.sh
+        dest: /home/ubuntu/flows.sh
+        mode: "0755"
+
+    - name: Start iperf3 listeners on ports 5201-5220
+      ansible.builtin.shell: |
+        for p in $(seq 5201 5220); do
+          ss -ltn | grep -q ":$p " || iperf3 -s -D -p $p
+        done
+      args:
+        executable: /bin/bash
+
+- name: Start recording on every switch
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Copy the sampler script
+      ansible.builtin.copy:
+        src: ../scripts/sampler.sh
+        dest: /home/cumulus/sampler.sh
+        mode: "0755"
+
+    - name: Reset the results folder
+      ansible.builtin.shell: |
+        rm -rf {{ results_dir }}/raw
+        mkdir -p {{ results_dir }}/raw
+        date +%s%3N > {{ results_dir }}/.t0
+        echo "elapsed_ms,event" > {{ results_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: Start the sampler in the background
+      ansible.builtin.command: >
+        bash /home/cumulus/sampler.sh {{ inventory_hostname }} 600
+        /tmp/counters-{{ inventory_hostname }}.csv
+      async: 900
+      poll: 0
+
+- name: Run the traffic scenario
+  hosts: servers
+  gather_facts: false
+  vars:
+    rate: 4M
+  tasks:
+    - name: "Phase 1: idle baseline (20 seconds)"
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Mark same-rail start
+      ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Same-rail traffic" >> {{ results_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: "Phase 2: same-rail traffic (40 seconds)"
+      ansible.builtin.command: /home/ubuntu/flows.sh {{ server_id }} same 40 {{ rate }}
+      register: same
+
+    - name: Mark idle
+      ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Idle" >> {{ results_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: "Phase 3: idle (15 seconds)"
+      ansible.builtin.pause:
+        seconds: 15
+
+    - name: Mark light cross-rail start
+      ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Cross-rail light" >> {{ results_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: "Phase 4: light cross-rail traffic (40 seconds)"
+      ansible.builtin.command: /home/ubuntu/flows.sh {{ server_id }} cross1 40 {{ rate }}
+      register: light
+
+    - name: Mark heavy cross-rail start
+      ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Cross-rail heavy" >> {{ results_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: "Phase 5: heavy cross-rail traffic (120 seconds, runs in the background)"
+      ansible.builtin.command: /home/ubuntu/flows.sh {{ server_id }} cross3 120 {{ rate }}
+      async: 300
+      poll: 0
+      register: heavy_job
+
+- name: Fail and restore one spine while the heavy traffic is running
+  hosts: Spine2
+  gather_facts: false
+  tasks:
+    - name: Let the heavy traffic run undisturbed (35 seconds)
+      ansible.builtin.pause:
+        seconds: 35
+
+    - name: Fail Spine2, then restore it
+      block:
+        - name: Mark Spine2 down
+          ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Spine2 down" >> {{ results_dir }}/events.csv
+          delegate_to: localhost
+
+        - name: Shut every port on Spine2
+          ansible.builtin.shell: nv set interface swp1-5 link state down && nv config apply -y
+
+        - name: Run on three spines (30 seconds)
+          ansible.builtin.pause:
+            seconds: 30
+      rescue:
+        - name: Report a problem with the failure test
+          ansible.builtin.debug:
+            msg: "The Spine2 failure step did not complete. The rest of the scenario continues."
+      always:
+        - name: Mark Spine2 restored
+          ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Spine2 restored" >> {{ results_dir }}/events.csv
+          delegate_to: localhost
+
+        - name: Bring every port on Spine2 back up
+          ansible.builtin.shell: nv set interface swp1-5 link state up && nv config apply -y
+
+- name: Finish the scenario
+  hosts: servers
+  gather_facts: false
+  tasks:
+    - name: Wait for the heavy traffic to finish
+      ansible.builtin.async_status:
+        jid: "{{ heavy_job.ansible_job_id }}"
+      register: heavy
+      until: heavy.finished
+      retries: 40
+      delay: 5
+      failed_when: false
+
+    - name: Mark end of traffic
+      ansible.builtin.shell: echo "$(( $(date +%s%3N) - $(cat {{ results_dir }}/.t0) )),Idle" >> {{ results_dir }}/events.csv
+      delegate_to: localhost
+      run_once: true
+
+    - name: "Phase 6: idle (20 seconds)"
+      ansible.builtin.pause:
+        seconds: 20
+
+    - name: Flow report
+      ansible.builtin.debug:
+        msg: "same rail: {{ same.stdout }} | cross-rail light: {{ light.stdout }} | cross-rail heavy: {{ heavy.stdout | default('did not finish') }}"
+
+- name: Collect the recordings
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Stop the sampler
+      ansible.builtin.shell: pkill -f '[s]ampler.sh' || true
+
+    - name: Fetch the counters file
+      ansible.builtin.fetch:
+        src: /tmp/counters-{{ inventory_hostname }}.csv
+        dest: "{{ results_dir }}/raw/"
+        flat: true
+
+    - name: Merge into results/counters.csv
+      ansible.builtin.shell: |
+        cd {{ results_dir }}
+        ( echo "elapsed_ms,switch,port,rx_bytes,tx_bytes"; cat raw/counters-*.csv ) > counters.csv
+        rm -f .t0
+        echo "$(( $(wc -l < counters.csv) - 1 )) samples from $(ls raw | wc -l) switches"
+      delegate_to: localhost
+      run_once: true
+      register: merged
+
+    - name: Result
+      ansible.builtin.debug:
+        msg: "{{ merged.stdout }}"
+      run_once: true
