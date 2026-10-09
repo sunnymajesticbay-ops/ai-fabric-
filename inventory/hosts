@@ -17,3 +17,12 @@ leaves
 
 [switches:vars]
 ansible_user=cumulus
+
+[servers]
+Server1
+Server2
+Server3
+Server4
+
+[servers:vars]
+ansible_user=ubuntu

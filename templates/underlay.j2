@@ -10,5 +10,12 @@ nv set router bgp router-id {{ loopback }}
 nv set vrf default router bgp neighbor {{ port }} remote-as external
 {% endfor %}
 nv set vrf default router bgp address-family ipv4-unicast network {{ loopback }}/32
+{% if server_ports is defined %}
+# Server-facing ports: 10.<rail>.<server>.0/30, leaf side is .1
+{% for port, server in server_ports.items() %}
+nv set interface {{ port }} ip address 10.{{ rail }}.{{ server }}.1/30
+{% endfor %}
+nv set vrf default router bgp address-family ipv4-unicast redistribute connected
+{% endif %}
 nv config apply -y
 nv config save

@@ -1,0 +1,32 @@
+- name: Verify server-to-server reachability across the fabric
+  hosts: servers
+  gather_facts: false
+  vars:
+    peer: "{{ server_id % 4 + 1 }}"
+  tasks:
+    - name: Ping the next server on the same rail and on a different rail
+      ansible.builtin.shell: |
+        ok=0; total=0; same=""; cross=""
+        for rail in 1 2 3 4 5; do
+          src=10.$rail.{{ server_id }}.2
+          other=$(( rail % 5 + 1 ))
+          for dst in 10.$rail.{{ peer }}.2 10.$other.{{ peer }}.2; do
+            total=$(( total + 1 ))
+            ttl=$(ping -c 2 -W 2 -I $src $dst 2>/dev/null | grep -o 'ttl=[0-9]*' | head -1 | cut -d= -f2)
+            if [ -z "$ttl" ]; then echo "FAILED: $src -> $dst"; continue; fi
+            ok=$(( ok + 1 ))
+            if [ "$dst" = "10.$rail.{{ peer }}.2" ]; then same="$same $(( 64 - ttl ))"; else cross="$cross $(( 64 - ttl ))"; fi
+          done
+        done
+        echo "$ok of $total paths OK"
+        echo "same rail, switch hops: $same"
+        echo "cross rail, switch hops: $cross"
+      args:
+        executable: /bin/bash
+      register: result
+      changed_when: false
+      failed_when: "'10 of 10' not in result.stdout"
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ result.stdout_lines }}"

@@ -1,2 +1,9 @@
 # Leaf ports swp1-swp4 connect to Spine1-Spine4
 fabric_ports: [swp1, swp2, swp3, swp4]
+
+# Server-facing ports: port name -> server number
+server_ports:
+  swp32: 1
+  swp31: 2
+  swp30: 3
+  swp29: 4

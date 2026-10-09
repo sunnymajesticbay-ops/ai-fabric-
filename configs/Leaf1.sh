@@ -11,5 +11,11 @@ nv set vrf default router bgp neighbor swp2 remote-as external
 nv set vrf default router bgp neighbor swp3 remote-as external
 nv set vrf default router bgp neighbor swp4 remote-as external
 nv set vrf default router bgp address-family ipv4-unicast network 10.10.10.1/32
+# Server-facing ports: 10.<rail>.<server>.0/30, leaf side is .1
+nv set interface swp32 ip address 10.1.1.1/30
+nv set interface swp31 ip address 10.1.2.1/30
+nv set interface swp30 ip address 10.1.3.1/30
+nv set interface swp29 ip address 10.1.4.1/30
+nv set vrf default router bgp address-family ipv4-unicast redistribute connected
 nv config apply -y
 nv config save

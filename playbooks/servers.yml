@@ -1,0 +1,23 @@
+- name: Configure the server network ports (one port per rail)
+  hosts: servers
+  gather_facts: false
+  tasks:
+    - name: Build the network file for this server (kept in configs/ for Git)
+      ansible.builtin.template:
+        src: ../templates/server-netplan.j2
+        dest: "{{ playbook_dir }}/../configs/{{ inventory_hostname }}.yaml"
+        mode: "0644"
+      delegate_to: localhost
+
+    - name: Install the network file
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../configs/{{ inventory_hostname }}.yaml"
+        dest: /etc/netplan/60-fabric.yaml
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+
+    - name: Apply it
+      ansible.builtin.command: netplan apply
+      become: true
