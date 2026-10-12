@@ -1,0 +1,106 @@
+# Ceiling test: uncapped iperf3 flows from Server1 to Server2.
+# Answers whether the ~1.9 Gbit/s limit seen in the threshold test is per link or shared.
+#   A  one flow, same rail (Server1 eth1 -> Leaf1 -> Server2 eth1)
+#   B  one flow, cross rail (Server1 eth1 -> Leaf1 -> spine -> Leaf2 -> Server2 eth2)
+#   C  four parallel streams on the same single link as A
+#   D  five flows at once, one per rail, each staying on its own leaf
+#   E  five flows at once, one per rail, each crossing a spine
+# Results land in results-ceiling/summary.csv
+
+- name: Start listeners on Server2
+  hosts: Server2
+  gather_facts: false
+  tasks:
+    - name: Start iperf3 listeners on ports 5201-5205
+      ansible.builtin.shell: |
+        for p in 5201 5202 5203 5204 5205; do
+          ss -ltn | grep -q ":$p " || iperf3 -s -D -p $p
+        done
+      args:
+        executable: /bin/bash
+
+- name: Run the ceiling tests from Server1
+  hosts: Server1
+  gather_facts: false
+  vars:
+    secs: 15
+    rails: [1, 2, 3, 4, 5]
+  tasks:
+    - name: "Test A: one flow, same rail"
+      ansible.builtin.command: iperf3 -J -c 10.1.2.2 -B 10.1.1.2 -p 5201 -t {{ secs }} -O 2
+      register: a
+
+    - name: "Test B: one flow, cross rail"
+      ansible.builtin.command: iperf3 -J -c 10.2.2.2 -B 10.1.1.2 -p 5201 -t {{ secs }} -O 2
+      register: b
+
+    - name: "Test C: four parallel streams on one link"
+      ansible.builtin.command: iperf3 -J -c 10.1.2.2 -B 10.1.1.2 -p 5201 -t {{ secs }} -O 2 -P 4
+      register: c
+
+    - name: "Test D: five flows at once, same rail (start)"
+      ansible.builtin.command: iperf3 -J -c 10.{{ item }}.2.2 -B 10.{{ item }}.1.2 -p {{ 5200 + item }} -t {{ secs }} -O 2
+      loop: "{{ rails }}"
+      async: 90
+      poll: 0
+      register: d_jobs
+
+    - name: "Test D: wait for all five flows"
+      ansible.builtin.async_status:
+        jid: "{{ job.ansible_job_id }}"
+      loop: "{{ d_jobs.results }}"
+      loop_control:
+        loop_var: job
+      register: d
+      until: d.finished
+      retries: 45
+      delay: 2
+
+    - name: "Test E: five flows at once, cross rail (start)"
+      ansible.builtin.command: iperf3 -J -c 10.{{ item % 5 + 1 }}.2.2 -B 10.{{ item }}.1.2 -p {{ 5200 + item }} -t {{ secs }} -O 2
+      loop: "{{ rails }}"
+      async: 90
+      poll: 0
+      register: e_jobs
+
+    - name: "Test E: wait for all five flows"
+      ansible.builtin.async_status:
+        jid: "{{ job.ansible_job_id }}"
+      loop: "{{ e_jobs.results }}"
+      loop_control:
+        loop_var: job
+      register: e
+      until: e.finished
+      retries: 45
+      delay: 2
+
+    - name: Parse the results
+      ansible.builtin.set_fact:
+        runs:
+          - { test: "A one flow same rail", flows: 1, links: 1, r: ["{{ a.stdout | from_json }}"] }
+          - { test: "B one flow cross rail", flows: 1, links: 1, r: ["{{ b.stdout | from_json }}"] }
+          - { test: "C four streams one link", flows: 4, links: 1, r: ["{{ c.stdout | from_json }}"] }
+          - { test: "D five rails same rail", flows: 5, links: 5, r: "{{ d.results | map(attribute='stdout') | map('from_json') | list }}" }
+          - { test: "E five rails cross rail", flows: 5, links: 5, r: "{{ e.results | map(attribute='stdout') | map('from_json') | list }}" }
+
+    - name: Create the results folder
+      ansible.builtin.file:
+        path: "{{ ceiling_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+
+    - name: Write results-ceiling/summary.csv
+      ansible.builtin.copy:
+        dest: "{{ ceiling_dir }}/summary.csv"
+        mode: "0644"
+        content: |
+          test,flows,links,mbit_s,sender_cpu_pct,receiver_cpu_pct
+          {% for x in runs %}
+          {{ x.test }},{{ x.flows }},{{ x.links }},{{ (x.r | map(attribute='end') | map(attribute='sum_received') | map(attribute='bits_per_second') | sum / 1e6) | round(1) }},{{ (x.r | map(attribute='end') | map(attribute='cpu_utilization_percent') | map(attribute='host_total') | sum) | round(1) }},{{ (x.r | map(attribute='end') | map(attribute='cpu_utilization_percent') | map(attribute='remote_total') | sum) | round(1) }}
+          {% endfor %}
+      delegate_to: localhost
+
+    - name: Results
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', ceiling_dir + '/summary.csv').splitlines() }}"
