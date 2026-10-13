@@ -10,6 +10,15 @@ nv set router bgp router-id {{ loopback }}
 nv set vrf default router bgp neighbor {{ port }} remote-as external
 {% endfor %}
 nv set vrf default router bgp address-family ipv4-unicast network {{ loopback }}/32
+# BFD: declare a fabric neighbor dead after {{ bfd_multiplier }} missed hellos {{ bfd_interval_ms }} ms apart,
+# instead of waiting for the BGP hold timer
+nv set router bfd state enabled
+nv set router bfd profile FABRIC detect-multiplier {{ bfd_multiplier }}
+nv set router bfd profile FABRIC min-tx-interval {{ bfd_interval_ms }}
+nv set router bfd profile FABRIC min-rx-interval {{ bfd_interval_ms }}
+{% for port in fabric_ports %}
+nv set vrf default router bgp neighbor {{ port }} bfd profile FABRIC
+{% endfor %}
 {% if server_ports is defined %}
 # Server-facing ports: 10.<rail>.<server>.0/30, leaf side is .1
 {% for port, server in server_ports.items() %}

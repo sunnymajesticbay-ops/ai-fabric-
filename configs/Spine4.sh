@@ -12,5 +12,16 @@ nv set vrf default router bgp neighbor swp3 remote-as external
 nv set vrf default router bgp neighbor swp4 remote-as external
 nv set vrf default router bgp neighbor swp5 remote-as external
 nv set vrf default router bgp address-family ipv4-unicast network 10.10.10.104/32
+# BFD: declare a fabric neighbor dead after 3 missed hellos 300 ms apart,
+# instead of waiting for the BGP hold timer
+nv set router bfd state enabled
+nv set router bfd profile FABRIC detect-multiplier 3
+nv set router bfd profile FABRIC min-tx-interval 300
+nv set router bfd profile FABRIC min-rx-interval 300
+nv set vrf default router bgp neighbor swp1 bfd profile FABRIC
+nv set vrf default router bgp neighbor swp2 bfd profile FABRIC
+nv set vrf default router bgp neighbor swp3 bfd profile FABRIC
+nv set vrf default router bgp neighbor swp4 bfd profile FABRIC
+nv set vrf default router bgp neighbor swp5 bfd profile FABRIC
 nv config apply -y
 nv config save

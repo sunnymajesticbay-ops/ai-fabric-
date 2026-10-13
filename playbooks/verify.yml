@@ -1,4 +1,4 @@
-- name: Verify BGP on every switch
+- name: Verify BGP and BFD on every switch
   hosts: switches
   gather_facts: false
   tasks:
@@ -10,6 +10,18 @@
       retries: 12
       delay: 5
 
+    - name: Wait for all BFD sessions to come up
+      ansible.builtin.command: nv show vrf default router bfd peers --view brief
+      register: bfd
+      changed_when: false
+      until: (bfd.stdout | regex_findall('(?m)\s+up\s+') | length) >= (fabric_ports | length)
+      retries: 12
+      delay: 5
+      failed_when: false
+
     - name: Report
       ansible.builtin.debug:
-        msg: "{{ inventory_hostname }}: {{ bgp.stdout | lower | regex_findall('established') | length }} of {{ fabric_ports | length }} BGP sessions established"
+        msg: >-
+          {{ inventory_hostname }}:
+          {{ bgp.stdout | lower | regex_findall('established') | length }} of {{ fabric_ports | length }} BGP sessions established,
+          {{ bfd.stdout | default('') | regex_findall('(?m)\s+up\s+') | length }} of {{ fabric_ports | length }} BFD sessions up
