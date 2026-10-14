@@ -19,6 +19,10 @@ nv set router bfd profile FABRIC min-rx-interval {{ bfd_interval_ms }}
 {% for port in fabric_ports %}
 nv set vrf default router bgp neighbor {{ port }} bfd profile FABRIC
 {% endfor %}
+{% if roce_enabled | default(false) %}
+# RoCE: lossless mode (PFC on priority 3, ECN, ETS) for RDMA traffic
+nv set qos roce mode lossless
+{% endif %}
 {% if server_ports is defined %}
 # Server-facing ports: 10.<rail>.<server>.0/30, leaf side is .1
 {% for port, server in server_ports.items() %}

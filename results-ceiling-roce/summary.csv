@@ -1,0 +1,6 @@
+test,flows,links,mbit_s,sender_cpu_pct,receiver_cpu_pct,retransmits
+A one flow same rail,1,1,649.8,1.7,26.5,729
+B one flow cross rail,1,1,583.6,1.2,26.8,620
+C four streams one link,4,1,658.5,1.9,32.0,7941
+D five rails same rail,5,5,1686.6,4.1,112.4,4704
+E five rails cross rail,5,5,1444.9,4.1,100.6,2642

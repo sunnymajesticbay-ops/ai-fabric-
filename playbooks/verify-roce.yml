@@ -1,0 +1,13 @@
+- name: Verify RoCE on every switch
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Read the RoCE status
+      ansible.builtin.command: nv show qos roce
+      register: roce
+      changed_when: false
+      failed_when: false
+
+    - name: Report
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ 'RoCE lossless is configured' if (roce.stdout | lower is search('lossless')) else 'RoCE NOT found - check: ' ~ (roce.stderr or roce.stdout)[:200] }}"

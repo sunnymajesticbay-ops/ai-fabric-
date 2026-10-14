@@ -23,5 +23,7 @@ nv set vrf default router bgp neighbor swp2 bfd profile FABRIC
 nv set vrf default router bgp neighbor swp3 bfd profile FABRIC
 nv set vrf default router bgp neighbor swp4 bfd profile FABRIC
 nv set vrf default router bgp neighbor swp5 bfd profile FABRIC
+# RoCE: lossless mode (PFC on priority 3, ECN, ETS) for RDMA traffic
+nv set qos roce mode lossless
 nv config apply -y
 nv config save

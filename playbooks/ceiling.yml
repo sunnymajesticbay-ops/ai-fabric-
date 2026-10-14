@@ -95,9 +95,9 @@
         dest: "{{ ceiling_dir }}/summary.csv"
         mode: "0644"
         content: |
-          test,flows,links,mbit_s,sender_cpu_pct,receiver_cpu_pct
+          test,flows,links,mbit_s,sender_cpu_pct,receiver_cpu_pct,retransmits
           {% for x in runs %}
-          {{ x.test }},{{ x.flows }},{{ x.links }},{{ (x.r | map(attribute='end') | map(attribute='sum_received') | map(attribute='bits_per_second') | sum / 1e6) | round(1) }},{{ (x.r | map(attribute='end') | map(attribute='cpu_utilization_percent') | map(attribute='host_total') | sum) | round(1) }},{{ (x.r | map(attribute='end') | map(attribute='cpu_utilization_percent') | map(attribute='remote_total') | sum) | round(1) }}
+          {{ x.test }},{{ x.flows }},{{ x.links }},{{ (x.r | map(attribute='end') | map(attribute='sum_received') | map(attribute='bits_per_second') | sum / 1e6) | round(1) }},{{ (x.r | map(attribute='end') | map(attribute='cpu_utilization_percent') | map(attribute='host_total') | sum) | round(1) }},{{ (x.r | map(attribute='end') | map(attribute='cpu_utilization_percent') | map(attribute='remote_total') | sum) | round(1) }},{{ x.r | map(attribute='end') | map(attribute='sum_sent') | map(attribute='retransmits', default=0) | sum }}
           {% endfor %}
       delegate_to: localhost
 

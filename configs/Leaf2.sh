@@ -21,6 +21,8 @@ nv set vrf default router bgp neighbor swp1 bfd profile FABRIC
 nv set vrf default router bgp neighbor swp2 bfd profile FABRIC
 nv set vrf default router bgp neighbor swp3 bfd profile FABRIC
 nv set vrf default router bgp neighbor swp4 bfd profile FABRIC
+# RoCE: lossless mode (PFC on priority 3, ECN, ETS) for RDMA traffic
+nv set qos roce mode lossless
 # Server-facing ports: 10.<rail>.<server>.0/30, leaf side is .1
 nv set interface swp32 ip address 10.2.1.1/30
 nv set interface swp31 ip address 10.2.2.1/30

@@ -3,3 +3,4 @@ threshold_dir: "{{ playbook_dir }}/../results-threshold"
 ceiling_dir: "{{ playbook_dir }}/../results-ceiling"
 bfd_interval_ms: 300
 bfd_multiplier: 3
+roce_enabled: true
