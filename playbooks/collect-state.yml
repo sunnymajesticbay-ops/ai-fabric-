@@ -1,0 +1,59 @@
+# Read-only snapshot of every switch, used by scripts/fabric_doctor.py.
+# Nothing on the switches is changed: every command below only shows state.
+#
+#   ansible-playbook playbooks/collect-state.yml -e snapshot_dir=$PWD/state/test
+#
+# Each switch's outputs are saved on the OOB server as <snapshot_dir>/<Switch>.json.
+# A switch that cannot be reached simply has no file; fabric_doctor.py reports it.
+
+- name: Prepare the snapshot folder
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Create the snapshot folder
+      ansible.builtin.file:
+        path: "{{ snapshot_dir }}"
+        state: directory
+        mode: "0755"
+
+- name: Collect switch state
+  hosts: switches
+  gather_facts: false
+  vars:
+    state_commands:
+      - { key: hostname,  cmd: "hostname" }
+      - { key: uptime,    cmd: "cat /proc/uptime /proc/loadavg" }
+      - { key: services,  cmd: "for s in frr nvued; do printf '%s ' $s; systemctl is-active $s; done" }
+      - { key: links,     cmd: "ip -j -s link show" }
+      - { key: addrs,     cmd: "ip -j addr show" }
+      - { key: routes,    cmd: "ip -j route show" }
+      - { key: bgp,       cmd: "nv show vrf default router bgp neighbor" }
+      - { key: bgp_json,  cmd: "nv show vrf default router bgp neighbor -o json" }
+      - { key: bfd,       cmd: "nv show vrf default router bfd peers --view brief" }
+      - { key: bfd_json,  cmd: "nv show vrf default router bfd peers -o json" }
+      - { key: roce,      cmd: "nv show qos roce" }
+  tasks:
+    - name: Run the show commands (read-only)
+      ansible.builtin.shell: "{{ item.cmd }}"
+      args:
+        executable: /bin/bash
+      loop: "{{ state_commands }}"
+      loop_control:
+        label: "{{ item.key }}"
+      register: out
+      changed_when: false
+      failed_when: false
+
+    - name: Save this switch's snapshot on the OOB server
+      ansible.builtin.copy:
+        dest: "{{ snapshot_dir }}/{{ inventory_hostname }}.json"
+        mode: "0644"
+        content: >-
+          {{ {
+               'host': inventory_hostname,
+               'collected_utc': now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ'),
+               'outputs': dict(out.results | map(attribute='item.key') | zip(out.results | map(attribute='stdout', default=''))),
+               'rc':      dict(out.results | map(attribute='item.key') | zip(out.results | map(attribute='rc', default=-1))),
+               'stderr':  dict(out.results | map(attribute='item.key') | zip(out.results | map(attribute='stderr', default='')))
+             } | to_nice_json }}
+      delegate_to: localhost
