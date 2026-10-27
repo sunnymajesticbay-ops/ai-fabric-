@@ -3,3 +3,5 @@ results-threshold/raw/
 results-bfd/raw/
 results-ceiling-bfd/raw/
 results-ceiling-roce/raw/
+state/
+__pycache__/
