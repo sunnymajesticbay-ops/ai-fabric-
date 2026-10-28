@@ -17,6 +17,7 @@ How it works
   4. Everything is written to reports/fabric-doctor-<time>.md.
 
 The AI step needs an Anthropic API key in the environment:  export ANTHROPIC_API_KEY=...
+(If the key is not scoped to a workspace, also export ANTHROPIC_WORKSPACE_ID=wrkspc_...)
 Only Python's standard library is used, so there is nothing to pip install.
 Exit code: 0 healthy, 1 warnings, 2 critical problems (useful from cron or CI).
 """
@@ -556,8 +557,10 @@ def ask_claude(model, system, user, max_tokens=1600):
         return None, "ANTHROPIC_API_KEY is not set (run with --no-llm, or export the key first)"
     body = json.dumps({"model": model, "max_tokens": max_tokens, "system": system,
                        "messages": [{"role": "user", "content": user}]}).encode()
-    req = urllib.request.Request(f"{base}/v1/messages", data=body, method="POST", headers={
-        "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"})
+    headers = {"authorization": f"Bearer {key}", "anthropic-version": "2023-06-01", "content-type": "application/json"}
+    if os.environ.get("ANTHROPIC_WORKSPACE_ID"):   # only needed for a key that is not scoped to a workspace
+        headers["anthropic-workspace-id"] = os.environ["ANTHROPIC_WORKSPACE_ID"]
+    req = urllib.request.Request(f"{base}/v1/messages", data=body, method="POST", headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=180) as r:
             resp = json.loads(r.read())
@@ -566,7 +569,12 @@ def ask_claude(model, system, user, max_tokens=1600):
             msg = json.loads(e.read()).get("error", {}).get("message", "")
         except ValueError:
             msg = ""
-        return None, f"Claude API returned HTTP {e.code}: {msg}"
+        hint = ""
+        if "anthropic-workspace-id" in msg:
+            hint = " (export ANTHROPIC_WORKSPACE_ID=wrkspc_..., or create a key scoped to a workspace)"
+        elif e.code == 401:
+            hint = " (check the key: it should start with sk-ant-)"
+        return None, f"Claude API returned HTTP {e.code}: {msg}{hint}"
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         return None, f"could not reach the Claude API: {e}"
     text = "".join(b.get("text", "") for b in resp.get("content", []) if b.get("type") == "text")

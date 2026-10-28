@@ -98,6 +98,20 @@ How it works:
 Options: `--snapshot state/<time>` re-checks an old snapshot, `--dry-run` writes
 the prompt into the report without calling the API, `--model` picks the model.
 
+## Demo automation
+
+`scripts/demo.sh` wraps the routine jobs in short commands:
+
+    scripts/demo.sh check       # management, BGP/BFD, server paths, API key, doctor, Git sync
+    scripts/demo.sh rehearse    # healthy -> Spine2 down -> restored, reports + summary, push to GitHub
+    scripts/demo.sh break       # take Spine2's fabric links down (or: break Leaf3)
+    scripts/demo.sh restore     # bring them back and wait for BGP and BFD
+    scripts/demo.sh sync        # commit and push (refuses to commit an API key)
+    scripts/demo.sh savekey     # keep the Anthropic key across logins, outside the repo
+
+A rehearsal always restores the switch, even if it is interrupted with Ctrl-C.
+See [docs/demo-runbook.md](docs/demo-runbook.md) for the interview checklist.
+
 ## Roadmap
 
 - Address the server-facing ports and the servers
